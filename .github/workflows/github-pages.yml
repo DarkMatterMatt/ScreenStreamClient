@@ -34,7 +34,7 @@ jobs:
 
       - name: Build
         run: npm run build
-        env: |
+        env:
           REACT_APP_WS_URL: ${{ secrets.WS_URL }}
         
       - name: Deploy to GitHub Pages
