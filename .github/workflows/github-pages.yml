@@ -32,13 +32,10 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Create .env
-        uses: SpicyPizza/create-envfile@v1
-        with:
-          envkey_REACT_APP_WS_URL: ${{ secrets.WS_URL }}
-
       - name: Build
         run: npm run build
+        env: |
+          REACT_APP_WS_URL: ${{ secrets.WS_URL }}
         
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
