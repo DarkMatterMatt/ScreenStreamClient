@@ -16,7 +16,7 @@ interface ScreenSharePeerOpts {
     /** Called when the stream is ending */
     onStreamEnd?: () => void;
 
-    /** Maximum audio bandwidth, in kbps. Recommended value range is 1000 - 15000+. */
+    /** Maximum audio bandwidth, in kbps. Recommended value range is 1000 - 5000+. */
     videoBandwidth?: number;
 
     /** WebSocket URL for signalling. */
@@ -25,35 +25,6 @@ interface ScreenSharePeerOpts {
     /** WebSocket channel for signalling. */
     wsChannel: string;
 }
-
-interface Response {
-    message: string;
-    route: string;
-    status: "success" | "error";
-}
-
-interface ResponseChannel extends Response {
-    numberOfMembers: number;
-    route: "joinChannel" | "leaveChannel" | "getChannel";
-}
-
-interface ResponseSignal extends Response {
-    data: {
-        type: "signal";
-        signal: SimplePeer.SignalData;
-    }
-    route: "peer";
-}
-
-interface ResponseText extends Response {
-    data: {
-        type: "text";
-        text: string;
-    }
-    route: "peer";
-}
-
-type ResponseAny = ResponseChannel | ResponseSignal | ResponseText;
 
 export default class PeerManager {
     private audioBandwidth?: number;
@@ -89,16 +60,39 @@ export default class PeerManager {
         this.initWebSocket();
     }
 
+    /**
+     * Initialize websocket connection via server, add event handlers.
+     */
     private initWebSocket(): void {
         // WebSocket is created in constructor
 
+        let interval: undefined | ReturnType<typeof setInterval>;
+
+        // on connect, join channel, start heartbeats
         this.ws.addEventListener("open", () => {
             this.ws.send(JSON.stringify({
                 route: "joinChannel",
                 channelId: this.wsChannel,
             }));
+
+            // send a heartbeat to avoid being disconnected
+            interval = setInterval(() => {
+                this.ws.send(JSON.stringify({
+                    route: "ping",
+                }));
+            }, 5000);
         });
 
+        // on close, stop heartbeats
+        this.ws.addEventListener("close", ev => {
+            console.warn("WebSocket", "Closed unexpectedly", ev.code, ev.reason);
+
+            if (interval != null) {
+                clearInterval(interval);
+            }
+        });
+
+        // handle messages from the server (may or may not be from peer)
         this.ws.addEventListener("message", ev => {
             const data: ResponseAny = JSON.parse(ev.data);
 
@@ -116,7 +110,7 @@ export default class PeerManager {
                         throw new Error("Cannot signal, peer is null.");
                     }
 
-                    console.log("WebSocket", "Received signal", data);
+                    console.log("WebSocket", "Received signal", data.data.signal);
                     this.peer.signal(data.data.signal);
                     return;
                 }
@@ -136,7 +130,7 @@ export default class PeerManager {
 
             // finished joining a channel
             if (data.route === "joinChannel") {
-                console.log("WebSocket", "Joined channel", data);
+                console.log("WebSocket", "Joined channel", data.channelId);
 
                 // we have a peer waiting for us
                 if (data.numberOfMembers > 1) {
@@ -157,14 +151,18 @@ export default class PeerManager {
                 return;
             }
 
-            console.log("WebSocket", "Unhandled message", data);
-        });
+            // ignore pongs & message send receipts
+            if (data.route === "ping" || data.route === "message") {
+                return;
+            }
 
-        this.ws.addEventListener("close", ev => {
-            console.warn("WebSocket", "Closed unexpectedly", ev.code, ev.reason);
+            console.log("WebSocket", "Unhandled message", data);
         });
     }
 
+    /**
+     * Initialize peer WebRTC connection, add event handlers.
+     */
     private initPeer(isInitiator?: "initiator") {
         // create peer
         this.peer = new SimplePeer({
@@ -174,6 +172,7 @@ export default class PeerManager {
         });
         this.queuedStream = null;
 
+        // on signal, send via websocket
         this.peer.on("signal", signal => {
             this.ws.send(JSON.stringify({
                 route: "message",
@@ -184,17 +183,42 @@ export default class PeerManager {
             }));
         });
 
+        let interval: undefined | ReturnType<typeof setInterval>;
+
+        // on connect, start any queued stream, start heartbeats
         this.peer.on("connect", () => {
             if (this.queuedStream != null) {
                 this.peer!.addStream(this.queuedStream);
                 this.queuedStream = null;
             }
+
+            // start heartbeat, initiator waits 2500ms before first beat
+            setTimeout(() => {
+                interval = setInterval(() => {
+                    this.peer!.send(JSON.stringify({
+                        type: "ping",
+                    }));
+                }, 5000);
+            }, isInitiator ? 2500 : 0);
         });
 
+        // on close, stop heartbeats
+        this.peer.on("close", () => {
+            console.warn("WebRTC", "Closed unexpectedly");
+
+            if (interval != null) {
+                clearInterval(interval);
+            }
+        });
+
+        // when stream starts, notify someone
         this.peer.on("stream", s => this.onStream(s));
 
+        // act on data received from peer
         this.peer.on("data", raw => {
             const data = JSON.parse(raw);
+
+            // stream ending, notify someone
             if (data.type === "streamEnding") {
                 if (this.onStreamEnd != null) {
                     this.onStreamEnd();
@@ -202,10 +226,26 @@ export default class PeerManager {
                 return;
             }
 
+            // reply to pings
+            if (data.type === "ping") {
+                this.peer!.send(JSON.stringify({
+                    type: "pong",
+                }));
+                return;
+            }
+
+            // ignore pongs
+            if (data.type === "pong") {
+                return;
+            }
+
             console.log("WebRTC", "Unhandled message", data);
         });
     }
 
+    /**
+     * Handles bandwidth limiting.
+     */
     private sdpTransform_(sdp: string) {
         // remove existing b=AS: tags
         sdp = sdp.replace(/b=AS([^\r]+\r\n)/g, "");
@@ -223,6 +263,9 @@ export default class PeerManager {
         return sdp;
     }
 
+    /**
+     * Begin streaming to peer.
+     */
     public addStream(stream: MediaStream) {
         if (this.peer == null) {
             this.queuedStream = stream;
@@ -232,12 +275,16 @@ export default class PeerManager {
         this.peer.addStream(stream);
     }
 
+    /**
+     * Stop streaming to peer.
+     */
     public removeStream(stream: MediaStream) {
         if (this.peer == null) {
             this.queuedStream = null;
             return;
         }
 
+        // notify peer
         this.peer.send(JSON.stringify({
             type: "streamEnding",
         }));

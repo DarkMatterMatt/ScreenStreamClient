@@ -5,15 +5,16 @@ import PeerManager from "PeerManager";
 import env from "env";
 import logo from "./logo.svg";
 
-function App() {
-    let pm: PeerManager;
+let pm: PeerManager;
 
+function App() {
     const [stream, setStream] = useState<null | MediaStream>(null);
 
     // set up PeerManager
     useEffect(() => {
         pm = new PeerManager({
             onStream: setStream,
+            onStreamEnd: () => setStream(null),
             wsUrl: env.WS_URL,
             wsChannel: window.location.hash || "test",
         });
