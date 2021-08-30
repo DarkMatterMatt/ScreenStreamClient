@@ -2,7 +2,7 @@ import React, { useState } from "react";
 
 interface Props {
     onStreamSelected?: (stream: MediaStream) => void;
-    onStreamEnded?: () => void;
+    onStreamEnded?: (stream: MediaStream) => void;
     constraints?: {
         height?: number;
         frameRate?: number;
@@ -10,7 +10,7 @@ interface Props {
 }
 
 function getDisplayMedia(constraints?: MediaStreamConstraints) {
-    if (navigator.mediaDevices.getDisplayMedia) {
+    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
         return navigator.mediaDevices.getDisplayMedia(constraints);
     }
     if (navigator.getDisplayMedia) {
@@ -19,10 +19,14 @@ function getDisplayMedia(constraints?: MediaStreamConstraints) {
     throw new Error("getDisplayMedia is not available.");
 }
 
+function supportsDisplayMedia() {
+    return (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) || navigator.getDisplayMedia;
+}
+
 type StreamState = "initial" | "error" | "selected" | "ended";
 
 export function SelectStream(p: Props) {
-    if (!navigator.getDisplayMedia && !navigator.mediaDevices.getDisplayMedia) {
+    if (!supportsDisplayMedia()) {
         return (
           <div>Not supported</div>
         );
@@ -41,7 +45,7 @@ export function SelectStream(p: Props) {
             const [video] = stream.getVideoTracks();
             video.addEventListener("ended", () => {
                 if (p.onStreamEnded) {
-                    p.onStreamEnded();
+                    p.onStreamEnded(stream);
                 }
                 setStreamState("ended");
             });
