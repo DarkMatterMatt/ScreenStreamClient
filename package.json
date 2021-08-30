@@ -1,5 +1,5 @@
 {
-  "name": "ScreenStream",
+  "name": "screenstream",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
