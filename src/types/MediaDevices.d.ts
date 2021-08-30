@@ -1,5 +1,3 @@
-import { MediaStreamConstraints } from "typescript";
-
 declare global {
     interface Navigator {
         getDisplayMedia?(constraints?: MediaStreamConstraints): Promise<MediaStream>;
@@ -9,3 +7,5 @@ declare global {
         getDisplayMedia?(constraints?: MediaStreamConstraints): Promise<MediaStream>;
     }
 }
+
+export {};
