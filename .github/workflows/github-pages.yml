@@ -35,7 +35,7 @@ jobs:
       - name: Create .env
         uses: SpicyPizza/create-envfile@v1
         with:
-          envkey_WS_URL: ${{ secrets.WS_URL }}
+          envkey_REACT_APP_WS_URL: ${{ secrets.WS_URL }}
 
       - name: Build
         run: npm run build
