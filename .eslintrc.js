@@ -10,6 +10,7 @@ module.exports = {
         "airbnb-base",
         "airbnb/rules/react",
     ],
+    ignorePatterns: ["build/**/*.js", "config/**/*.js", "scripts/**/*.js"],
     parser: "@typescript-eslint/parser",
     parserOptions: {
         ecmaFeatures: {
